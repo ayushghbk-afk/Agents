@@ -8,8 +8,11 @@ const tools = require("./tools");
 const HELP = `/help                 Show commands
 /status               Runtime and memory status
 /inspect              Print workspace tree
-/plan TASK            Research and produce a read-only plan
+/plan TASK            Research and produce a read-only implementation plan
 /task TASK             Execute a task (plain text does the same)
+/auto TASK             Autonomous implementation and repair loop
+/debug ISSUE           Reproduce, diagnose, fix, and regression-test an issue
+/diff                  Show the current Git diff
 /history               Show recent completed tasks
 /memory [QUERY]        Show memory stats or relevant recall
 /remember KIND TEXT    Save a durable fact, decision, or note
@@ -39,8 +42,9 @@ async function main() {
     try {
       if (["/quit", "/exit"].includes(line)) return rl.close();
       if (line === "/help") console.log(HELP);
-      else if (line === "/status") console.log({ workspace: config.workspace, model: config.aiModel, maxSteps: config.maxSteps, network: config.allowNetwork, checkpoints: config.checkpoints, memory: await memory.stats() });
+      else if (line === "/status") console.log({ workspace: config.workspace, model: config.aiModel, maxSteps: config.maxSteps, network: config.allowNetwork, checkpoints: config.checkpoints, backups: config.backups, memory: await memory.stats() });
       else if (line === "/inspect") console.log((await tools.tree()).join("\n"));
+      else if (line === "/diff") console.log((await tools.git("diff")).stdout || "No unstaged diff.");
       else if (line === "/history") console.log(JSON.stringify((await memory.load()).tasks.slice(-20), null, 2));
       else if (line === "/memory") console.log(await memory.stats());
       else if (line.startsWith("/memory ")) console.log(JSON.stringify(await memory.context(line.slice(8)), null, 2));
@@ -54,12 +58,14 @@ async function main() {
         if (!await confirm(`Clear memory scope '${scope}'? [y/N] `)) console.log("Cancelled.");
         else { await memory.clear(scope); console.log(`Cleared ${scope}.`); }
       } else if (line.startsWith("/checkpoint")) console.log(await git.checkpoint(line.slice(11).trim() || "manual"));
-      else if (line === "/rollback") {
+      else if (["/rollback", "/undo"].includes(line)) {
         if (!await confirm("Apply latest checkpoint over the current tracked worktree? [y/N] ")) console.log("Cancelled.");
         else console.log(await git.rollback());
-      } else if (line.startsWith("/plan ")) await task(line.slice(6), { planOnly: true });
-      else if (line.startsWith("/task ")) await task(line.slice(6));
-      else await task(line);
+      } else if (line.startsWith("/plan ")) await task(line.slice(6), { planOnly: true, mode: "plan" });
+      else if (line.startsWith("/auto ")) await task(line.slice(6), { mode: "auto" });
+      else if (line.startsWith("/debug ")) await task(line.slice(7), { mode: "debug" });
+      else if (line.startsWith("/task ")) await task(line.slice(6), { mode: "normal" });
+      else await task(line, { mode: "normal" });
     } catch (e) { console.error("\x1b[31mERROR:\x1b[0m", e.message); }
     rl.prompt();
   });

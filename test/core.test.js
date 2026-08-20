@@ -4,6 +4,7 @@ const { extractJson, textOf } = require("../src/ai");
 const { normalize, ranked } = require("../src/memory");
 const { validate, trimMessages } = require("../src/agent");
 const { commandRisk, safe } = require("../src/tools");
+const { detectLanguage, packageInfo } = require("../src/project");
 
 test("extractJson accepts clean, fenced, and surrounded tool actions", () => {
   assert.equal(extractJson('{"tool":"tree","args":{}}').tool, "tree");
@@ -46,4 +47,16 @@ test("command risk blocks catastrophic and gates risky/network commands", () => 
 test("safe path rejects workspace escapes", () => {
   assert.throws(() => safe("../../etc/passwd"), /escapes workspace/);
   assert.doesNotThrow(() => safe("src/agent.js"));
+});
+test("project inspection helpers identify Node projects and scripts", () => {
+  assert.equal(detectLanguage(["package.json", "src/index.ts"]), "JavaScript/TypeScript");
+  const info = packageInfo('{"name":"demo","scripts":{"test":"node --test"},"dependencies":{"next":"1"}}');
+  assert.equal(info.packageManager, "npm");
+  assert.equal(info.framework, "next");
+  assert.equal(info.scripts.test, "node --test");
+});
+test("new tool actions validate their arguments", () => {
+  assert.equal(validate({ tool: "inspect_project" }).tool, "inspect_project");
+  assert.equal(validate({ tool: "mkdir", args: { path: "tmp" } }).tool, "mkdir");
+  assert.throws(() => validate({ tool: "progress", args: { phase: "test" } }), /args.message/);
 });
