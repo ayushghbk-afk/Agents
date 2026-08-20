@@ -30,6 +30,8 @@ module.exports = {
   autoApproveSafe: bool(process.env.AUTO_APPROVE_SAFE, true),
   allowNetwork: bool(process.env.ALLOW_NETWORK, false),
   checkpoints: bool(process.env.CHECKPOINTS, true),
+  backups: bool(process.env.BACKUPS, true),
+  maxBackups: number("MAX_BACKUPS", 25, 1, 200),
   maxFileBytes: number("MAX_FILE_BYTES", 500000, 1000, 10000000),
   maxToolOutput: number("MAX_TOOL_OUTPUT", 20000, 2000, 100000),
   memoryMaxItems: number("MEMORY_MAX_ITEMS", 250, 10, 5000),

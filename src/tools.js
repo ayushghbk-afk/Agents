@@ -68,19 +68,45 @@ async function read(relative, startLine = 1, endLine) {
   const lines = content.split("\n"), start = Math.max(1, Number(startLine) || 1), end = Math.min(lines.length, Number(endLine) || start + 249);
   return lines.slice(start - 1, end).map((line, i) => `${start + i}: ${line}`).join("\n");
 }
+async function backup(file) {
+  if (!config.backups) return null;
+  try {
+    const stat = await fs.stat(file);
+    if (!stat.isFile() || stat.size > config.maxFileBytes) return null;
+    const relative = path.relative(config.workspace, file);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const target = path.join(config.workspace, ".agent", "backups", stamp, relative);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.copyFile(file, target);
+    const root = path.join(config.workspace, ".agent", "backups");
+    const snapshots = (await fs.readdir(root, { withFileTypes: true })).filter(x => x.isDirectory()).map(x => x.name).sort();
+    await Promise.all(snapshots.slice(0, Math.max(0, snapshots.length - config.maxBackups)).map(name => fs.rm(path.join(root, name), { recursive: true, force: true })));
+    return path.relative(config.workspace, target);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
 async function write(relative, content) {
   const file = await secure(relative);
+  const saved = await backup(file);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, String(content), "utf8");
-  return `wrote ${path.relative(config.workspace, file)} (${Buffer.byteLength(String(content))} bytes)`;
+  return `wrote ${path.relative(config.workspace, file)} (${Buffer.byteLength(String(content))} bytes)${saved ? `; backup: ${saved}` : ""}`;
 }
 async function patch(relative, oldText, newText) {
   if (!oldText) throw new Error("oldText cannot be empty");
   const file = await secure(relative), content = await fs.readFile(file, "utf8");
   const count = content.split(oldText).length - 1;
   if (count !== 1) throw new Error(`Patch expected exactly one match; found ${count}`);
+  const saved = await backup(file);
   await fs.writeFile(file, content.replace(oldText, String(newText ?? "")), "utf8");
-  return `patched ${path.relative(config.workspace, file)}`;
+  return `patched ${path.relative(config.workspace, file)}${saved ? `; backup: ${saved}` : ""}`;
+}
+async function mkdir(relative) {
+  const directory = await secure(relative);
+  await fs.mkdir(directory, { recursive: true });
+  return `created directory ${path.relative(config.workspace, directory) || "."}`;
 }
 async function search(pattern, options = {}) {
   let regex;
@@ -132,4 +158,4 @@ async function stat(relative) {
   const value = await fs.stat(await secure(relative));
   return { path: relative, type: value.isDirectory() ? "directory" : "file", bytes: value.size, modified: value.mtime.toISOString() };
 }
-module.exports = { tree, read, write, patch, search, exec, git, stat, safe, secure, clip, commandRisk };
+module.exports = { tree, read, write, patch, mkdir, search, exec, git, stat, safe, secure, clip, commandRisk, backup };

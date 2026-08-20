@@ -7,7 +7,7 @@ A memory-first autonomous coding agent for Termux, built around any OpenAI-compa
 - **Durable, relevant memory** — versioned project profile, facts, decisions, notes, task outcomes, keyword-ranked recall, deduplication, bounded compaction, legacy migration, and atomic private writes.
 - **A disciplined engineering loop** — inspect → implement → verify → diagnose → finish, with a quality gate that catches untested edits.
 - **Long-task resilience** — bounded transcript compaction, repeated-action detection, protocol repair, up to 200 configurable steps, request timeout, and exponential AI retries.
-- **Better tools** — ranged file reads, deep tree inspection, scoped search, file metadata, precise patches, bounded outputs, process-group timeouts, and read-only Git inspection.
+- **Better tools** — ranged file reads, deep tree inspection, scoped search, file metadata, project detection, AGENTS.md-aware context, precise patches, automatic pre-edit backups, bounded outputs, process-group timeouts, and read-only Git inspection.
 - **Real safety boundaries** — workspace path sandboxing, network policy, catastrophic command blocking, confirmation for risky commands, secret-aware instructions, and plan-only enforcement.
 - **Non-destructive checkpoints** — Git snapshots are recorded without committing, staging, or changing the worktree.
 - **Honest completion reports** — summaries include actual verification evidence; task outcomes become future context.
@@ -40,6 +40,10 @@ Set `WORKSPACE` in `.env` to the project the agent may control. Set your endpoin
 /inspect              Print workspace tree
 /plan TASK            Research and produce a read-only plan
 /task TASK             Execute a task (plain text also works)
+/auto TASK             Run the autonomous inspect → implement → verify → repair loop
+/debug ISSUE           Reproduce, diagnose, fix, and regression-test an issue
+/diff                  Show the current unstaged Git diff
+/undo                  Apply the latest checkpoint after confirmation
 /history               Show recent completed tasks
 /memory [QUERY]        Show stats or query relevant memory
 /remember KIND TEXT    Save a fact, decision, or note
@@ -63,6 +67,7 @@ See `.env.example`. Important controls include:
 - `AI_RETRIES`, `REQUEST_TIMEOUT_MS` — endpoint resilience
 - `MEMORY_MAX_ITEMS`, `MEMORY_RECALL_ITEMS` — memory depth and recall size
 - `AUTO_APPROVE_SAFE` — whether harmless commands run without prompting
+- `BACKUPS`, `MAX_BACKUPS` — retain private pre-edit file copies beneath `.agent/backups`
 - `ALLOW_NETWORK` — permit network/package commands (they still require confirmation)
 - `MAX_TOOL_OUTPUT`, `MAX_FILE_BYTES` — context and file safety limits
 - `IGNORED_DIRS` — directories excluded from tree/search
