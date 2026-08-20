@@ -1,16 +1,23 @@
-# Termux Agent v5
+# Termux Agent v6
 
-A memory-first autonomous coding agent for Termux, built around any OpenAI-compatible chat endpoint.
+A memory-first autonomous coding agent for Termux. The v6 core is a real engineering loop, not a chatbot wrapper:
 
-## What makes v5 stronger
+```text
+Plan → Tool → Observe → Verify → Repair → Repeat
+```
 
-- **Durable, relevant memory** — versioned project profile, facts, decisions, notes, task outcomes, keyword-ranked recall, deduplication, bounded compaction, legacy migration, and atomic private writes.
-- **A disciplined engineering loop** — inspect → implement → verify → diagnose → finish, with a quality gate that catches untested edits.
-- **Long-task resilience** — bounded transcript compaction, repeated-action detection, protocol repair, up to 200 configurable steps, request timeout, and exponential AI retries.
-- **Better tools** — ranged file reads, deep tree inspection, scoped search, file metadata, project detection, AGENTS.md-aware context, precise patches, automatic pre-edit backups, bounded outputs, process-group timeouts, and read-only Git inspection.
-- **Real safety boundaries** — workspace path sandboxing, network policy, catastrophic command blocking, confirmation for risky commands, secret-aware instructions, and plan-only enforcement.
-- **Non-destructive checkpoints** — Git snapshots are recorded without committing, staging, or changing the worktree.
-- **Honest completion reports** — summaries include actual verification evidence; task outcomes become future context.
+Providers, tools, memory, task state, and the CLI are separate modules. Switching models does not require changing the agent.
+
+## What v6 adds
+
+- **Agent runtime** with structured task state (id, plan, tool history, verification, resume).
+- **Provider abstraction** for OpenAI-compatible, Groq, Gemini, custom proxy, and local endpoints, plus aliases, fallback, retries, and token accounting.
+- **First-class tools** (`read_file`, `patch_file`, `run_test`, `git_checkpoint`, …) with schema, risk, timeout, and sandboxing.
+- **Context engine** that ranks relevant files/symbols and keeps prompts inside a token budget.
+- **AGENTS.md layering** from `~/AGENTS.md` → project → directory.
+- **Full-workspace checkpoints** that restore tracked Git state *and* untracked files.
+- **Verification + repair** with a quality gate and a bounded retest loop.
+- **Task persistence** so `/pause`, `/resume`, and `/cancel` survive a restart.
 
 ## Install
 
@@ -20,58 +27,79 @@ Install under `$HOME`, not shared Android storage.
 pkg update
 pkg install nodejs git python unzip -y
 mkdir -p ~/agents && cd ~/agents
-unzip ~/storage/downloads/termux-agent-v5.zip
-cd termux-agent-v5
+unzip ~/storage/downloads/termux-agent-v6.zip
+cd termux-agent-v6
 cp .env.example .env
 nano .env
-npm install
 npm test
 npm run doctor
 npm start
 ```
 
-Set `WORKSPACE` in `.env` to the project the agent may control. Set your endpoint, model, and API key. Network and package-manager commands are denied unless `ALLOW_NETWORK=true`.
+Set `WORKSPACE` to the project the agent may control. Set provider, endpoint, model, and API key. Network and package-manager commands are denied unless `ALLOW_NETWORK=true`.
+
+## Configuration
+
+Priority: CLI → environment / `.env` → `WORKSPACE/.agents/config.json` → `~/.agents/config.json` → defaults.
+
+```text
+MODEL_PROVIDER=custom
+MODEL=openai/gpt-oss-120b
+API_URL=https://your-proxy.example/v1
+```
+
+Runtime data lives in the workspace:
+
+```text
+.agents/
+├── config.json
+├── memory/
+├── tasks/
+├── checkpoints/
+└── backups/
+```
+
+Legacy v5 `WORKSPACE/.agent/memory.json` is migrated automatically.
 
 ## Commands
 
 ```text
 /help                 Show commands
 /status               Runtime and memory status
+/model [NAME]         Show or set the session model
+/config               Show non-secret configuration
 /inspect              Print workspace tree
 /plan TASK            Research and produce a read-only plan
-/task TASK             Execute a task (plain text also works)
-/auto TASK             Run the autonomous inspect → implement → verify → repair loop
-/debug ISSUE           Reproduce, diagnose, fix, and regression-test an issue
-/diff                  Show the current unstaged Git diff
-/undo                  Apply the latest checkpoint after confirmation
-/history               Show recent completed tasks
-/memory [QUERY]        Show stats or query relevant memory
-/remember KIND TEXT    Save a fact, decision, or note
-/forget SCOPE          Clear one memory category or all memory
-/checkpoint [LABEL]    Snapshot tracked Git state without a commit
-/rollback              Restore the latest snapshot after confirmation
-/quit                  Exit
+/task TASK            Execute a task (plain text also works)
+/tasks                List persisted tasks
+/auto TASK            Autonomous inspect → implement → verify → repair
+/debug ISSUE          Reproduce, diagnose, fix, and regression-test
+/diff                 Show the current unstaged Git diff
+/history              Show recent completed tasks
+/memory [QUERY]       Show stats or query relevant memory
+/remember KIND TEXT   Save a fact, decision, note, failure, or discovery
+/forget SCOPE         Clear one memory category or all memory
+/checkpoint [LABEL]   Snapshot workspace state without changing the worktree
+/rollback             Restore the latest snapshot after confirmation
+/resume [TASK_ID]     Resume a paused or interrupted task
+/pause [TASK_ID]      Mark a task paused
+/cancel [TASK_ID]     Cancel a task
+/clear                Clear the terminal
+/quit                 Exit
 ```
 
-## Memory model
+## Safety
 
-Memory is stored at `WORKSPACE/.agent/memory.json` with owner-only permissions. It is intentionally bounded by `MEMORY_MAX_ITEMS`; recall selects items relevant to the current task rather than dumping the entire history into every prompt. The format automatically migrates the old v4 `{project, facts, tasks}` structure.
+Risk levels: **SAFE** (auto when `AUTO_APPROVE_SAFE=true`) · **APPROVAL REQUIRED** · **BLOCKED**.
 
-Never put passwords, API keys, tokens, or private user data in memory. Use `/forget all` to erase it.
+The sandbox confines paths to `WORKSPACE`, blocks catastrophic commands, redacts secrets, refuses `.env` / key material, and strips API keys from child environments.
 
-## Configuration
+## Checkpoints
 
-See `.env.example`. Important controls include:
+Git snapshots still use `git stash create` so the worktree is not touched at checkpoint time. v6 also copies untracked files and records a file inventory. Rollback restores tracked state, reapplies untracked files, and removes files created after the checkpoint.
 
-- `MAX_STEPS`, `CONVERSATION_WINDOW` — autonomy and context bounds
-- `AI_RETRIES`, `REQUEST_TIMEOUT_MS` — endpoint resilience
-- `MEMORY_MAX_ITEMS`, `MEMORY_RECALL_ITEMS` — memory depth and recall size
-- `AUTO_APPROVE_SAFE` — whether harmless commands run without prompting
-- `BACKUPS`, `MAX_BACKUPS` — retain private pre-edit file copies beneath `.agent/backups`
-- `ALLOW_NETWORK` — permit network/package commands (they still require confirmation)
-- `MAX_TOOL_OUTPUT`, `MAX_FILE_BYTES` — context and file safety limits
-- `IGNORED_DIRS` — directories excluded from tree/search
+## Tests
 
-## Checkpoint limits
-
-Checkpoints use `git stash create`, which captures tracked Git state while leaving the index and worktree untouched. Untracked files are not captured. Rollback uses `git stash apply --index` and may report normal merge conflicts if the workspace diverged.
+```bash
+npm test
+```

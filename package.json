@@ -1,14 +1,14 @@
 {
-  "name": "termux-agent-v5",
-  "version": "5.0.0",
+  "name": "termux-agent-v6",
+  "version": "6.0.0",
   "private": true,
-  "description": "Memory-first autonomous coding agent for Termux",
+  "description": "Plan-tool-observe-verify coding agent for Termux",
   "main": "src/cli.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/cli.js",
     "doctor": "node src/doctor.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js test/*/*.test.js"
   },
   "engines": { "node": ">=20" },
   "dependencies": {}
