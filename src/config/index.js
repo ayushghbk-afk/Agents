@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { expandHome, parseArgs } = require("./args");
 
 function loadEnvFile(file) {
   try {
@@ -35,6 +36,7 @@ function readJson(file) {
 const DEFAULTS = {
   workspace: path.resolve(process.env.WORKSPACE || process.cwd()),
   provider: process.env.MODEL_PROVIDER || process.env.AI_PROVIDER || "custom",
+  mode: process.env.AGENT_MODE || process.env.MODE || "pro",
   model: process.env.MODEL || process.env.AI_MODEL || "openai/gpt-oss-120b",
   apiUrl: process.env.API_URL || process.env.AI_PROXY_URL || "https://groq-proxy.mr-hackerdon808.workers.dev/",
   apiKey: process.env.AI_API_KEY || process.env.API_KEY || "",
@@ -81,6 +83,7 @@ function mergeLayer(target, layer = {}) {
   const map = {
     workspace: "workspace",
     provider: "provider",
+    mode: "mode",
     model: "model",
     apiUrl: "apiUrl",
     api_url: "apiUrl",
@@ -107,10 +110,13 @@ function mergeLayer(target, layer = {}) {
 function build(cliOverrides = {}) {
   const cfg = { ...DEFAULTS };
   mergeLayer(cfg, readJson(path.join(globalDir(), "config.json")));
-  const workspace = path.resolve(cliOverrides.workspace || process.env.WORKSPACE || cfg.workspace || DEFAULTS.workspace);
+  const workspace = path.resolve(
+    expandHome(cliOverrides.workspace || process.env.WORKSPACE || cfg.workspace || DEFAULTS.workspace)
+  );
   mergeLayer(cfg, readJson(path.join(workspace, ".agents", "config.json")));
   cfg.workspace = workspace;
   cfg.provider = process.env.MODEL_PROVIDER || process.env.AI_PROVIDER || cfg.provider;
+  cfg.mode = process.env.AGENT_MODE || process.env.MODE || cfg.mode || "pro";
   cfg.model = process.env.MODEL || process.env.AI_MODEL || cfg.model;
   cfg.apiUrl = process.env.API_URL || process.env.AI_PROXY_URL || cfg.apiUrl;
   cfg.apiKey = process.env.AI_API_KEY || process.env.API_KEY || cfg.apiKey;
@@ -124,13 +130,26 @@ function build(cliOverrides = {}) {
 
 const config = build();
 
+function applyWorkspace(dir, { mustExist = false } = {}) {
+  const resolved = path.resolve(expandHome(dir));
+  if (mustExist) {
+    if (!fs.existsSync(resolved)) throw new Error(`Workspace does not exist: ${resolved}`);
+    if (!fs.statSync(resolved).isDirectory()) throw new Error(`Workspace is not a directory: ${resolved}`);
+  }
+  mergeLayer(config, readJson(path.join(resolved, ".agents", "config.json")));
+  config.workspace = resolved;
+  return config;
+}
+
 function override(values = {}) {
+  const pinnedWorkspace = values.workspace;
   Object.assign(config, values);
-  if (values.workspace) config.workspace = path.resolve(values.workspace);
+  if (pinnedWorkspace) applyWorkspace(pinnedWorkspace);
   if (values.model) config.aiModel = config.model;
   if (values.apiUrl) config.aiProxyUrl = config.apiUrl;
   if (values.apiKey) config.aiApiKey = config.apiKey;
   if (values.provider) config.provider = values.provider;
+  if (values.mode) config.mode = values.mode;
   return config;
 }
 
@@ -142,7 +161,10 @@ function snapshot() {
 module.exports = Object.assign(config, {
   build,
   override,
+  applyWorkspace,
   snapshot,
+  parseArgs,
+  expandHome,
   globalDir,
   projectDir: () => projectDir(config.workspace),
   defaults: DEFAULTS

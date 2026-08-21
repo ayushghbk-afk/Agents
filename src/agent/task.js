@@ -19,7 +19,7 @@ function tasksDir() {
   return path.join(config.workspace, ".agents", "tasks");
 }
 
-function create({ objective, mode = "normal", planOnly = false } = {}) {
+function create({ objective, mode = "pro", planOnly = false } = {}) {
   return {
     id: `task-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
     status: "queued",
@@ -67,6 +67,7 @@ async function list(limit = 30) {
         items.push({
           id: task.id,
           status: task.status,
+          mode: task.mode,
           objective: task.objective,
           updatedAt: task.updatedAt,
           step: task.step
