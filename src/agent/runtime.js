@@ -10,6 +10,7 @@ const planner = require("./planner");
 const executor = require("./executor");
 const verifier = require("./verifier");
 const ui = require("../ui");
+const modes = require("../modes");
 
 function systemPrompt() {
   const catalog = tools
@@ -45,13 +46,6 @@ RULES:
 - Finish only when the request is satisfied or clearly explain a genuine blocker in done.`;
 }
 
-const MODE_GUIDANCE = {
-  normal: "Implement carefully and verify changed behavior.",
-  auto: "Work autonomously through inspect, implement, verify, diagnose, and repair; minimize unnecessary questions.",
-  debug: "Reproduce the failure, isolate the root cause, apply a minimal fix, and prove it with a focused regression check.",
-  plan: "Research only; produce a concrete, ordered implementation plan with affected files and verification steps."
-};
-
 function actionFromCompletion(completion) {
   if (completion.toolCalls?.length) {
     const call = completion.toolCalls[0];
@@ -64,23 +58,27 @@ function actionFromCompletion(completion) {
   throw new Error("Model did not return a JSON action");
 }
 
-async function think(messages, provider) {
+async function think(messages, provider, policy = {}) {
   const compacted = context.enforceBudget(messages);
-  const completion = await providers.complete({
-    provider,
-    messages: compacted
-  });
+  const options = { provider, messages: compacted };
+  if (policy.temperature != null) options.temperature = policy.temperature;
+  if (policy.maxOutputTokens != null) options.maxTokens = policy.maxOutputTokens;
+  const completion = await providers.complete(options);
   return { compacted, completion };
 }
 
 async function run(goal, confirm = async () => false, options = {}) {
-  const planOnly = options.planOnly === true;
-  const mode = options.mode || (planOnly ? "plan" : "normal");
+  const policy = modes.resolve(options.mode || (options.planOnly ? "plan" : config.mode || "pro"));
+  const mode = policy.id;
+  const planOnly = options.planOnly === true || policy.planOnly === true;
+  const maxSteps = modes.maxSteps(policy, config.maxSteps);
   const task = options.task || taskStore.create({ objective: goal, mode, planOnly });
+  task.mode = mode;
+  task.planOnly = planOnly;
   taskStore.setStatus(task, "planning");
   const ctxPack = await context.build(goal);
   const generated = options.plan || (await planner.generate({ goal, profile: ctxPack.profile, provider: options.provider, mode }));
-  task.plan = { ...generated, approved: !config.planApproval || mode === "plan" || options.skipApproval };
+  task.plan = { ...generated, approved: !config.planApproval || planOnly || options.skipApproval };
   if (config.planApproval && !planOnly && !options.skipApproval && confirm) {
     const approved = await confirm(`${ui.plan(task.plan)}\nApprove plan? [y/N] `);
     if (!approved) {
@@ -92,19 +90,22 @@ async function run(goal, confirm = async () => false, options = {}) {
     task.plan.approved = true;
   }
   console.log(ui.plan(task.plan));
-  if (config.checkpoints && !planOnly) {
+  if (config.checkpoints && policy.checkpoints !== false && !planOnly) {
     try {
       await git.checkpoint(`pre-task ${task.id}`);
     } catch {}
   }
-  const guidance = MODE_GUIDANCE[mode] || MODE_GUIDANCE.normal;
+  const guidance = policy.guidance;
+  const modeLock = planOnly || policy.mutating === false
+    ? `${policy.label.toUpperCase()} — READ ONLY — do not modify files, checkpoint, remember, or execute mutating commands.`
+    : "IMPLEMENT";
   task.messages = options.task?.messages?.length
     ? options.task.messages
     : [
         { role: "system", content: systemPrompt() },
         {
           role: "user",
-          content: `TASK:\n${goal}\n\nMODE: ${mode.toUpperCase()} — ${planOnly ? "PLAN ONLY — do not modify files, checkpoint, remember, or execute mutating commands." : "IMPLEMENT"}\nMODE GUIDANCE: ${guidance}\n\nCURRENT PLAN:\n${planner.format(task.plan)}\n\nCONTEXT:\n${ctxPack.text}`
+          content: `TASK:\n${goal}\n\nMODE: ${mode.toUpperCase()} (${policy.label}) — ${modeLock}\nMODE GUIDANCE: ${guidance}\n\nCURRENT PLAN:\n${planner.format(task.plan)}\n\nCONTEXT:\n${ctxPack.text}`
         }
       ];
   await taskStore.save(task);
@@ -119,17 +120,17 @@ async function run(goal, confirm = async () => false, options = {}) {
   };
   const startStep = Math.max(1, (task.step || 0) + 1);
   taskStore.setStatus(task, planOnly ? "planning" : "executing");
-  for (let step = startStep; step <= config.maxSteps; step++) {
+  for (let step = startStep; step <= maxSteps; step++) {
     if (task.status === "paused" || task.status === "cancelled") {
       await taskStore.save(task);
       return { summary: task.stopReason || task.status, verification: "", steps: step - 1, changed: state.changed, task };
     }
     task.step = step;
     task.currentSubtask = task.plan.steps?.[Math.min(step - 1, (task.plan.steps || []).length - 1)]?.title || null;
-    console.log(`\n${ui.step(step, config.maxSteps, task)}`);
+    console.log(`\n${ui.step(step, maxSteps, task)}`);
     let completion;
     try {
-      const thought = await think(task.messages, options.provider);
+      const thought = await think(task.messages, options.provider, policy);
       task.messages = thought.compacted;
       completion = thought.completion;
       task.usage.prompt += completion.usage?.prompt || 0;
@@ -167,7 +168,7 @@ async function run(goal, confirm = async () => false, options = {}) {
     }
     console.log(JSON.stringify(action, null, 2));
     if (action.tool === "done") {
-      if (!planOnly && state.changed && !state.successfulCommands.length && state.doneChallenges++ === 0) {
+      if (policy.qualityGate !== false && !planOnly && state.changed && !state.successfulCommands.length && state.doneChallenges++ === 0) {
         task.messages.push(
           { role: "assistant", content: fingerprint },
           {
@@ -178,7 +179,7 @@ async function run(goal, confirm = async () => false, options = {}) {
         );
         continue;
       }
-      if (!planOnly && state.changed && task.verification.status !== "passed" && config.maxRepairAttempts > 0) {
+      if (policy.repair !== false && !planOnly && state.changed && task.verification.status !== "passed" && config.maxRepairAttempts > 0) {
         taskStore.setStatus(task, "testing");
         const verification = await verifier.run(task);
         if (verifier.shouldRepair(verification) && state.doneChallenges < 2) {
@@ -211,12 +212,12 @@ async function run(goal, confirm = async () => false, options = {}) {
         task
       };
     }
-    if (planOnly && tools.mutating(action.tool)) {
+    if ((planOnly || policy.mutating === false) && tools.mutating(action.tool)) {
       task.messages.push(
         { role: "assistant", content: fingerprint },
         {
           role: "user",
-          content: "PLAN-ONLY MODE: mutating tools and shell execution are disabled. Use inspect_project/list_directory/read_file/search_files/file_info/git_*, then return the plan in done.summary."
+          content: `${policy.label.toUpperCase()} MODE: mutating tools and shell execution are disabled. Use inspect_project/list_directory/read_file/search_files/file_info/git_*, then finish with done.summary.`
         }
       );
       continue;
@@ -248,9 +249,9 @@ async function run(goal, confirm = async () => false, options = {}) {
     await taskStore.save(task);
   }
   taskStore.setStatus(task, "paused");
-  task.stopReason = `Maximum agent steps (${config.maxSteps}) reached`;
+  task.stopReason = `Maximum agent steps (${maxSteps}) reached`;
   await taskStore.save(task);
-  throw new Error(`Maximum agent steps (${config.maxSteps}) reached before completion`);
+  throw new Error(`Maximum agent steps (${maxSteps}) reached before completion`);
 }
 
 async function resume(id, confirm, options = {}) {
@@ -284,5 +285,6 @@ module.exports = {
   systemPrompt,
   SYSTEM: systemPrompt(),
   validate: tools.validate,
-  trimMessages: context.compactConversation
+  trimMessages: context.compactConversation,
+  modes
 };

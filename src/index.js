@@ -7,5 +7,6 @@ const context = require("./context");
 const sandbox = require("./sandbox");
 const git = require("./git");
 const ui = require("./ui");
+const modes = require("./modes");
 
-module.exports = { config, agent, tools, providers, memory, context, sandbox, git, ui };
+module.exports = { config, agent, tools, providers, memory, context, sandbox, git, ui, modes };

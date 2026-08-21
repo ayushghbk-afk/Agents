@@ -18,6 +18,8 @@ Providers, tools, memory, task state, and the CLI are separate modules. Switchin
 - **Full-workspace checkpoints** that restore tracked Git state *and* untracked files.
 - **Verification + repair** with a quality gate and a bounded retest loop.
 - **Task persistence** so `/pause`, `/resume`, and `/cancel` survive a restart.
+- **Gemini-style modes** (Fast, Thinking, Pro, plus Plan / Debug / Auto / Research / Ask) with a chip picker UI.
+- **`--workspace PATH`** so the agent repo stays put while it edits a different project.
 
 ## Install
 
@@ -36,7 +38,16 @@ npm run doctor
 npm start
 ```
 
-Set `WORKSPACE` to the project the agent may control. Set provider, endpoint, model, and API key. Network and package-manager commands are denied unless `ALLOW_NETWORK=true`.
+Keep the agent checkout separate from the project it builds. Launch against any directory:
+
+```bash
+cd ~/Agents
+node src/cli.js --workspace ~/projects/test-website
+```
+
+That prints `Workspace: …/projects/test-website` even though the process was started from `~/Agents`. `--mode thinking` (or Fast / Pro) selects a Gemini-style session mode. `WORKSPACE` in `.env` is the fallback when you omit `--workspace`.
+
+Set provider, endpoint, model, and API key. Network and package-manager commands are denied unless `ALLOW_NETWORK=true`.
 
 ## Configuration
 
