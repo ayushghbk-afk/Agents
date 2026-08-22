@@ -60,7 +60,11 @@ function actionFromCompletion(completion) {
 
 async function think(messages, provider, policy = {}) {
   const compacted = context.enforceBudget(messages);
-  const options = { provider, messages: compacted };
+  const options = {
+    provider,
+    messages: compacted,
+    tools: tools.openaiTools()
+  };
   if (policy.temperature != null) options.temperature = policy.temperature;
   if (policy.maxOutputTokens != null) options.maxTokens = policy.maxOutputTokens;
   const completion = await providers.complete(options);
