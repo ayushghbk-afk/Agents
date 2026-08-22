@@ -114,3 +114,7 @@ Git snapshots still use `git stash create` so the worktree is not touched at che
 ```bash
 npm test
 ```
+
+## Docs
+
+- [V6 Token Usage & Tool-Calling Fix Report](docs/v6-token-toolcalling-fix.md) — why tool calling is now always advertised to the model, the proxy's ~8000 TPM ceiling, and the recommended request-budget settings.

@@ -20,7 +20,7 @@ const MODES = {
     description: "Quick answers and short edits. Fewer steps; skip heavy verification.",
     maxSteps: 16,
     temperature: 0.45,
-    maxOutputTokens: 2048,
+    maxOutputTokens: 1000,
     qualityGate: false,
     repair: false,
     checkpoints: false,

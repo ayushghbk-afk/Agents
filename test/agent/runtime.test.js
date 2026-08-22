@@ -27,6 +27,33 @@ test("runtime plans, executes a read-only tool, and finishes", async () => {
   assert.equal(result.task.status, "completed");
 });
 
+test("runtime passes OpenAI tool definitions to the provider", async () => {
+  tempWorkspace();
+  let seenTools = null;
+  const provider = {
+    async complete(options) {
+      seenTools = options.tools;
+      return {
+        text: action("done", { summary: "Received tools", verification: "tool catalog present" }),
+        toolCalls: [],
+        usage: { prompt: 1, completion: 1 }
+      };
+    }
+  };
+  const result = await agent.run("Verify tool definitions are sent", async () => true, {
+    provider,
+    plan: { steps: [{ id: 1, title: "Check" }] },
+    skipApproval: true
+  });
+  assert.ok(Array.isArray(seenTools) && seenTools.length > 0, "provider must receive tools");
+  assert.equal(seenTools[0].type, "function");
+  const names = seenTools.map((t) => t.function.name);
+  assert.ok(names.includes("read_file"), "tool catalog includes read_file");
+  assert.ok(names.includes("done"), "tool catalog includes done");
+  assert.match(result.summary, /Received tools/);
+  assert.equal(result.task.status, "completed");
+});
+
 test("plan-only mode blocks writes", async () => {
   const dir = tempWorkspace();
   const provider = scripted([
